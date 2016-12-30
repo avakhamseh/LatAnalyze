@@ -11,25 +11,26 @@
 #include <LatAnalyze/Plot.hpp>
 #include <LatAnalyze/XYSampleData.hpp>
 #include <map>
-                    //////////////////////////////  BOOT DATA FOR DECAY CONSTANTS!
+#include <algorithm>
+//////////////////////////////  BOOT DATA FOR DECAY CONSTANTS: give option output
 using namespace std;
 using namespace Latan;
 
-enum CorrIndex {pp = 0, pa = 1, ap = 2, aa = 3};    
-//enum {nCorr = 4}
-enum {m = 0, zp = 1, za = 2};
+enum CorrIndex {pp = 0, pa = 1, ap = 2, aa = 3};
+//enum {nCorr = 4};
+//enum {m = 0, zp = 1, za = 2};
 
 int main(int argc, char *argv[])
 {
   // parse arguments /////////////////////////////////////////////////////////
   OptParser            opt;
-  bool                 parsed, doPlot, doHeatmap, doCorr, fold;
+  bool                 parsed, doPlot, doHeatmap, doCorr, fold, got3Par, gotAa;
   string               model, outFileName, outFmt;
-  Index                ti, tf, shift, nPar, thinning, nCorr;
+  Index                ti, tf, shift, nPar, thinning, nCorr=0;
 //  Index                ti_pa, ti_ap, ti_aa, tf_pa, tf_ap, tf_aa
   double               svdTol;
   Minimizer::Verbosity verbosity;
-  
+
 
   opt.addOption("" , "ti"       , OptParser::OptType::value  , false,
                 "initial fit time");
@@ -47,9 +48,7 @@ int main(int argc, char *argv[])
   //               "final fit time for pa channel");
   // opt.addOption("" , "fi_pa"       , OptParser::OptType::value  , true,
   //               "final fit time for aa channel");
-  //opt.addOption("nCorr" , "nCorrelator" , OptParser::OptType::value  , true,
-  //              "number of different correlators");
-  opt.addOption("" , "pp" , OptParser::OptType::value  , true,   
+  opt.addOption("" , "pp" , OptParser::OptType::value  , true,
                 "psudoscalar-pseudoscalar correlator");
   opt.addOption("" , "pa" , OptParser::OptType::value  , true,
                 "psudoscalar-axial correlator");
@@ -63,9 +62,6 @@ int main(int argc, char *argv[])
                 "time variable shift", "0");
   opt.addOption("m", "model"    , OptParser::OptType::value  , true,
                 "fit model (exp|exp2|exp3|cosh|cosh2|cosh3|<interpreter code>)", "cosh");
-  opt.addOption("" , "nPar"     , OptParser::OptType::value  , true,
-                "number of model parameters for custom models "
-                "(-1 if irrelevant)", "-1");
   opt.addOption("" , "svd"      , OptParser::OptType::value  , true,
                 "singular value elimination threshold", "0.");
   opt.addOption("v", "verbosity", OptParser::OptType::value  , true,
@@ -85,8 +81,8 @@ int main(int argc, char *argv[])
   parsed = opt.parse(argc, argv);
   if (!parsed or (opt.getArgs().size() != 0) or opt.gotOption("help"))  // IF I PUT SIZE = 0 THEN BAD ALLOC
   {
-   // if (!parsed or !(opt.getArgs().size() <= 4) or opt.gotOption("help"))
-  //{
+    // if (!parsed or !(opt.getArgs().size() <= 4) or opt.gotOption("help"))
+    //{
     cerr << "usage: " << argv[0] << " <options> <correlator file>" << endl;
     cerr << endl << "Possible options:" << endl << opt << endl;
 
@@ -104,17 +100,17 @@ int main(int argc, char *argv[])
   // tf_ap        = opt.optionValue<Index>("tf_ap");
   // ti_aa        = opt.optionValue<Index>("ti_aa");
   // tf_aa        = opt.optionValue<Index>("tf_aa");
-  //nCorr        = opt.optionValue<Index>("nCorr");
   thinning     = opt.optionValue<Index>("t");
   shift        = opt.optionValue<Index>("s");
   model        = opt.optionValue("m");
-  nPar         = opt.optionValue<Index>("nPar");
   svdTol       = opt.optionValue<double>("svd");
   outFileName  = opt.optionValue<string>("o");
   doCorr       = !opt.gotOption("uncorr");
   fold         = opt.gotOption("fold");
   doPlot       = opt.gotOption("p");
   doHeatmap    = opt.gotOption("h");
+  got3Par      = (opt.gotOption("ap") || opt.gotOption("pa") || (opt.gotOption("pp") && opt.gotOption("aa")));
+  gotAa        = opt.gotOption("aa");
   switch (opt.optionValue<unsigned int>("v"))
   {
   case 0:
@@ -131,25 +127,33 @@ int main(int argc, char *argv[])
     return EXIT_FAILURE;
   }
 
-  //map<CorrIndex, string> corrFileName(nCorr);     
-map<CorrIndex, string> corrFileName; //map does not get a size
+  //map<CorrIndex, string> corrFileName(nCorr);
+  map<CorrIndex, string> corrFileName; //map does not get a size
+  vector<unsigned int> ci;
 
   if (opt.gotOption("pp"))
   {
-      corrFileName[pp] = opt.optionValue("pp");
+    corrFileName[pp] = opt.optionValue("pp");
   }
   if (opt.gotOption("pa"))
   {
-      corrFileName[pa] = opt.optionValue("pa");
+    corrFileName[pa] = opt.optionValue("pa");
   }
   if (opt.gotOption("ap"))
   {
-      corrFileName[ap] = opt.optionValue("ap");
+    corrFileName[ap] = opt.optionValue("ap");
   }
   if (opt.gotOption("aa"))
   {
-      corrFileName[aa] = opt.optionValue("aa");
+    corrFileName[aa] = opt.optionValue("aa");
   }
+  for (auto &c : corrFileName)
+  {
+    ci.push_back(c.first);
+    cout << "c.first is : " << c.first <<endl;
+  }
+  nCorr = corrFileName.size();
+  cout << "nCorr is : " << nCorr << endl;
   // corrType.size();
   // cout << "the size is " << corrType.size() << endl;
 
@@ -162,8 +166,16 @@ map<CorrIndex, string> corrFileName; //map does not get a size
 
   //corrFileName = opt.getArgs().front();
 
+////// for nPar
+if (got3Par)
+  {
+    nPar = 3;
+  }
 
-  
+else {
+    nPar = 2;
+}
+cout << "nPar is : " << nPar << endl;
 
   map<string, int> corrMap;
   corrMap["pp"] = 0;
@@ -183,7 +195,7 @@ map<CorrIndex, string> corrFileName; //map does not get a size
   map<CorrIndex, DMatSample> corr;
   DMatSample                 tmp;
 
-  for (auto &c: corrFileName)
+  for (auto &c : corrFileName)
   {
     tmp     = Io::load<DMatSample>(c.second);
     nSample = tmp.size();
@@ -196,7 +208,7 @@ map<CorrIndex, string> corrFileName; //map does not get a size
 // for (Index i = 0, i < corrType.size(), i++)
 // if (!corrType[i].empty()) { ..... }                   //IF IT'S VALUE IS NON ZERO THEN DO
 
-   for (auto &c: corr)
+  for (auto &c : corr)
   {
     tmp = corr[c.first];
     FOR_STAT_ARRAY(corr[c.first], s)
@@ -234,47 +246,48 @@ map<CorrIndex, string> corrFileName; //map does not get a size
 //     // make model //////////////////////////////////////////////////////////////
 //     DoubleModel modCosh1, modCosh2, modCosh3, ...;
   DoubleModel modCosh_pp, modCosh_aa, modSinh_ap;
+  const unsigned int m = 0, zp = 1, za = (got3Par) ? 2 : 1;
   vector<const DoubleModel *> modVec;                // WHY DID WE NOT DO A MAP HERE AS WELL
 
 //     bool        coshModel = false;
 
-  nPar = 3;
+  //nPar = 3;
 
-  modCosh_pp.setFunction([nt](const double * x, const double * p)     // discuss the instance .setFunction
+  modCosh_pp.setFunction([nt, m, zp, za](const double * x, const double * p)     // discuss the instance .setFunction
   {
-    return p[1] * p[1] * (exp(-p[0] * x[0]) + exp(-p[0] * (nt - x[0])));
+    return p[zp] * p[zp] * (exp(-p[0] * x[0]) + exp(-p[0] * (nt - x[0])));   // ASK ABOUT x[0] VECTOR
   }, 1, nPar);
 
-  modCosh_aa.setFunction([nt](const double * x, const double * p)
+  modCosh_aa.setFunction([nt, m, zp, za](const double * x, const double * p)
   {
-    return p[2] * p[2] * (exp(-p[0] * x[0]) + exp(-p[0] * (nt - x[0])));
+    return p[za] * p[za] * (exp(-p[0] * x[0]) + exp(-p[0] * (nt - x[0])));
   }, 1, nPar);
 
-  modSinh_ap.setFunction([nt](const double * x, const double * p)
+  modSinh_ap.setFunction([nt, m, zp, za](const double * x, const double * p)
   {
-    return -p[1] * p[2] * (exp(-p[0] * x[0]) - exp(-p[0] * (nt - x[0])));
+    return -p[zp] * p[za] * (exp(-p[0] * x[0]) - exp(-p[0] * (nt - x[0])));
   }, 1, nPar);
 
   // modVec[pp] = &modCosh_pp;
   // modVec[ap] = &modSinh_ap;
   // modVec[pa] = &modSinh_ap;
   // modVec[aa] = &modCosh_aa;
-  for (auto &c: corrFileName)
+  for (auto &c : corrFileName)
   {
     switch (c.first)
     {
-      case pp:
-        modVec.push_back(&modCosh_pp);
-        break;
-      case pa:
-        modVec.push_back(&modSinh_ap);
-        break;
-      case ap:
-        modVec.push_back(&modSinh_ap);
-        break;
-      case aa:
-        modVec.push_back(&modCosh_aa);
-        break;
+    case pp:
+      modVec.push_back(&modCosh_pp);
+      break;
+    case pa:
+      modVec.push_back(&modSinh_ap);
+      break;
+    case ap:
+      modVec.push_back(&modSinh_ap);
+      break;
+    case aa:
+      modVec.push_back(&modCosh_aa);
+      break;
 
     }
   }
@@ -368,6 +381,7 @@ map<CorrIndex, string> corrFileName; //map does not get a size
 
 //     // fit /////////////////////////////////////////////////////////////////////
   DMatSample          tvec(nSample);
+  vector<const DMatSample *> corrpt;
   XYSampleData        data(nSample);
   SampleFitResult     fit;
   DVec                init(nPar);
@@ -381,53 +395,98 @@ map<CorrIndex, string> corrFileName; //map does not get a size
   }
   data.addXDim(nt, "t/a", true);
 
-for (auto &c: corrFileName)
+  for (auto &c : corr)
   {
     switch (c.first)
     {
-      case pp:
-        data.addYDim("C_pp(t)");
-        break;
-      case pa:
-        data.addYDim("C_pa(t)");
-        break;
-      case ap:
-        data.addYDim("C_ap(t)");
-        break;
-      case aa:
-        data.addYDim("C_aa(t)" );
-        break;
+    case pp:
+      data.addYDim("C_pp(t)");
+      break;
+    case pa:
+      data.addYDim("C_pa(t)");
+      break;
+    case ap:
+      data.addYDim("C_ap(t)");
+      break;
+    case aa:
+      data.addYDim("C_aa(t)" );
+      break;
 
     }
+    corrpt.push_back(&c.second);    //create a vector of DMatSample correlators, whichever is available lin
   }
 
   //for (auto &c: corr)
-  //{ 
-  //if (!corr[c.first].empty()) { ..... } 
+  //{
+  //if (!corr[c.first].empty()) { ..... }
 
-  data.setUnidimData(tvec, corr[pp], corr[pa], corr[ap], corr[aa]); //*****************************************//
+  data.setUnidimData(tvec, corrpt); 
   // DEBUG_VAR(corr[pp][central](0));
 
-  modCosh_pp.parName().setName(m, "m");
-  modCosh_pp.parName().setName(zp, "Z_p");
-  modCosh_pp.parName().setName(za, "Z_a");
+//*************************************************************************************************
+  // auto mod = const_cast<DoubleModel *>(modVec[0]);  
+  // mod->parName().setName(m, "m");    //same as (*modVec[0]).parName().setName(m, "m");
+  // mod->parName().setName(zp, "Z_p");
+  // mod->parName().setName(za, "Z_a");
+//*************************************************************************************************
 
-  init(m) = log(data.y(nt / 4, pp)[central] / data.y(nt / 4 + 1, 0)[central]);    // WHICH OF THE Y-DATA POINTS ???
-  init(zp) = sqrt(data.y(nt / 4, pp)[central] / (exp(-init(0) * nt / 4)));        // data.y(const Index k, const Index j)  CHECK THIS!
-  init(za) = sqrt(data.y(nt / 4, aa)[central] / (exp(-init(0) * nt / 4)));        // Row-major order, k = time, j = y-data but k can be generalise in the case of global
+//*************************************************************************************************
+// if ( std::find(modVec.begin(), modVec.end(), &modCosh_pp  ) != modVec.end() ) { //conditional expression in "item"
+//     modCosh_pp.parName().setName(m, "m");
+//     modCosh_pp.parName().setName(zp, "Z_p");
+//     cout << "modcosh_pp exists" << endl;
+//   }
 
-//  DEBUG_MAT(init);
+// else {
+//    cout << "modcosh_pp does not exists" << endl;
+//  }
+//*************************************************************************************************
 
+//*************************************************************************************************
 
+auto mod = const_cast<DoubleModel *>(modVec[0]);
+if (got3Par)
+  {
+   mod->parName().setName(m, "m");    
+   mod->parName().setName(zp, "Z_p");
+   mod->parName().setName(za, "Z_a");         
 
+   init(m) = log(data.y(nt / 4, pp)[central] / data.y(nt / 4 + 1, pp)[central]);  // need whatever 0th arg is, e.g see aa only
+   init(zp) = sqrt(data.y(nt / 4, pp)[central] / (exp(-init(m) * nt / 4)));     // but say single pa, then pa-1 doesn't work
+   init(za) = sqrt(data.y(nt / 4, pp)[central] / (exp(-init(m) * nt / 4)));
+   globMin.setLowLimit(m, 0.);
+   globMin.setHighLimit(m, 10.*init(m));
+   globMin.setLowLimit(zp, -10.*init(zp));
+   globMin.setHighLimit(zp, 10.*init(zp));
+   globMin.setLowLimit(za, -10.*init(za));
+   globMin.setHighLimit(za, 10.*init(za));
+   locMin.setLowLimit(m, 0.);
+  }
+
+else if (opt.gotOption("pp"))
+{
+    modCosh_pp.parName().setName(m, "m");
+    modCosh_pp.parName().setName(zp, "Z_p");
+    init(m) = log(data.y(nt / 4, pp)[central] / data.y(nt / 4 + 1, 0)[central]);
+    init(zp) = sqrt(data.y(nt / 4, pp)[central] / (exp(-init(m) * nt / 4))); 
+    globMin.setLowLimit(m, 0.);
+    globMin.setHighLimit(m, 10.*init(m));
+    globMin.setLowLimit(zp, -10.*init(zp));
+    globMin.setHighLimit(zp, 10.*init(zp));
+    locMin.setLowLimit(m, 0.);       
+}
+else {
+  modCosh_aa.parName().setName(m, "m");
+  modCosh_aa.parName().setName(za, "Z_a");            // NOTE: aa - 3
+  init(m) = log(data.y(nt / 4, aa-3)[central] / data.y(nt / 4 + 1, 0)[central]);  
+  init(za) = sqrt(data.y(nt / 4, aa-3)[central] / (exp(-init(m) * nt / 4)));
   globMin.setLowLimit(m, 0.);
   globMin.setHighLimit(m, 10.*init(m));
-  globMin.setLowLimit(zp, -10.*init(zp));
-  globMin.setHighLimit(zp, 10.*init(zp));
   globMin.setLowLimit(za, -10.*init(za));
   globMin.setHighLimit(za, 10.*init(za));
   locMin.setLowLimit(m, 0.);
-
+}
+//*************************************************************************************************
 
   globMin.setPrecision(0.001);
   globMin.setMaxIteration(100000);
@@ -450,7 +509,7 @@ for (auto &c: corrFileName)
   data.assumeYYCorrelated(false, 0, 0);
   fit = data.fit(unCorrMin, init, modVec);
   fit.print();
-  if (doCorr)
+  if (doCorr)                                 // WHEN THIS IS COMMENTED, THE AMPLITUDES TAKE NEGATIVE VALUES! s
   {
     cout << "-- correlated fit..." << endl;
     //cout << "using model '" << model << "'" << endl;
@@ -464,67 +523,67 @@ for (auto &c: corrFileName)
     fit.print();
   }
 
-  // plots ///////////////////////////////////////////////////////////////////
-  if (doPlot)
-  {
-    Plot       p;
-   // vector<DMatSample> effMass(nCorr);
-    map<enum CorrIndex, DMatSample> effMass;           
-    DVec       effMassT, fitErr;
-    Index      maxT =  (nt - 2);
-    double     e0, e0Err;
+//   // plots ///////////////////////////////////////////////////////////////////
+  // if (doPlot)
+  // {
+  //   Plot       p;
+  //   // vector<DMatSample> effMass(nCorr);
+  //   map<enum CorrIndex, DMatSample> effMass;
+  //   DVec       effMassT, fitErr;
+  //   Index      maxT =  (nt - 2);
+  //   double     e0, e0Err;
 
-    p << PlotRange(Axis::x, 0, nt - 1);
-    p << LogScale(Axis::y);
-    p << Color("rgb 'blue'") << PlotPredBand(fit.getModel(_, pp), 0, nt - 1);
-    p << Color("rgb 'blue'") << Title("PP") << PlotFunction(fit.getModel(central, pp), 0, nt - 1);
+  //   p << PlotRange(Axis::x, 0, nt - 1);
+  //   p << LogScale(Axis::y);
+  //   p << Color("rgb 'blue'") << PlotPredBand(fit.getModel(_, pp), 0, nt - 1);
+  //   p << Color("rgb 'blue'") << Title("PP") << PlotFunction(fit.getModel(central, pp), 0, nt - 1);
 
-    p << Color("rgb 'red'") << PlotPredBand(fit.getModel(_, pa), 0, nt - 1);
-    p << Color("rgb 'red'") << Title("PA") << PlotFunction(fit.getModel(central, pa), 0, nt - 1);
+  //   p << Color("rgb 'red'") << PlotPredBand(fit.getModel(_, pa), 0, nt - 1);
+  //   p << Color("rgb 'red'") << Title("PA") << PlotFunction(fit.getModel(central, pa), 0, nt - 1);
 
-    p << Color("rgb 'orange'") << PlotPredBand(fit.getModel(_, ap), 0, nt - 1);
-    p << Color("rgb 'orange'") << Title("AP") << PlotFunction(fit.getModel(central, ap), 0, nt - 1);
+  //   p << Color("rgb 'orange'") << PlotPredBand(fit.getModel(_, ap), 0, nt - 1);
+  //   p << Color("rgb 'orange'") << Title("AP") << PlotFunction(fit.getModel(central, ap), 0, nt - 1);
 
-    p << Color("rgb 'green'") << PlotPredBand(fit.getModel(_, aa), 0, nt - 1);
-    p << Color("rgb 'green'") << Title("AA") << PlotFunction(fit.getModel(central, aa), 0, nt - 1);
+  //   p << Color("rgb 'green'") << PlotPredBand(fit.getModel(_, aa), 0, nt - 1);
+  //   p << Color("rgb 'green'") << Title("AA") << PlotFunction(fit.getModel(central, aa), 0, nt - 1);
 
-    p << Color("rgb 'black'") << PlotData(data.getData(), 0, pp);
-    p << Color("rgb 'black'") << PlotData(data.getData(), 0, pa);
-    p << Color("rgb 'black'") << PlotData(data.getData(), 0, ap);
-    p << Color("rgb 'black'") << PlotData(data.getData(), 0, aa);
-    p.display();
+  //   p << Color("rgb 'black'") << PlotData(data.getData(), 0, pp);
+  //   p << Color("rgb 'black'") << PlotData(data.getData(), 0, pa);
+  //   p << Color("rgb 'black'") << PlotData(data.getData(), 0, ap);
+  //   p << Color("rgb 'black'") << PlotData(data.getData(), 0, aa);
+  //   p.display();
 
-for (auto &c: effMass)
-  {
-    effMass[c.first].resize(nSample);
-    effMass[c.first].resizeMat(maxT, 1); 
-  }
+  //   for (auto &c : effMass)
+  //   {
+  //     effMass[c.first].resize(nSample);
+  //     effMass[c.first].resizeMat(maxT, 1);
+  //   }
 
 
-    effMassT.setLinSpaced(maxT, 1, maxT);
-    fitErr = fit.variance().cwiseSqrt();
-    e0     = fit[central](0);
-    e0Err  = fitErr(0);
-    //     if (coshModel)
-    //     {
-    
-    for (auto &c: effMass)
-  {
-      FOR_STAT_ARRAY(effMass[c.first], s)
-      {
-        for (Index t = 1; t < nt - 1; ++t)
-        {
-          if (c.first == aa || c.first == pp) {
-            effMass[c.first][s](t - 1) = acosh((corr[c.first][s](t - 1) + corr[c.first][s](t + 1))
-                                         / (2.*corr[c.first][s](t)));
-          }
-          else {
-            effMass[c.first][s](t - 1) = acosh((corr[c.first][s](t - 1) + corr[c.first][s](t + 1))
-                                         / (2.*corr[c.first][s](t)));
-          }
-        }
-      }
-    }
+  //   effMassT.setLinSpaced(maxT, 1, maxT);
+  //   fitErr = fit.variance().cwiseSqrt();
+  //   e0     = fit[central](0);
+  //   e0Err  = fitErr(0);
+  //   //     if (coshModel)
+  //   //     {
+
+  //   for (auto &c : effMass)
+  //   {
+  //     FOR_STAT_ARRAY(effMass[c.first], s)
+  //     {
+  //       for (Index t = 1; t < nt - 1; ++t)
+  //       {
+  //         if (c.first == aa || c.first == pp) {
+  //           effMass[c.first][s](t - 1) = acosh((corr[c.first][s](t - 1) + corr[c.first][s](t + 1))
+  //                                              / (2.*corr[c.first][s](t)));
+  //         }
+  //         else {
+  //           effMass[c.first][s](t - 1) = acosh((corr[c.first][s](t - 1) + corr[c.first][s](t + 1))
+  //                                              / (2.*corr[c.first][s](t)));
+  //         }
+  //       }
+  //     }
+  //   }
 
     //     }
 
@@ -538,44 +597,44 @@ for (auto &c: effMass)
     //             }
     //         }
     //     }
-    p.reset();
-    p << PlotRange(Axis::x, 1, maxT);
-    p << PlotRange(Axis::y, e0 - 40.*e0Err, e0 + 40.*e0Err);
-    p << Color("rgb 'blue'") << PlotBand(0, maxT, e0 - e0Err, e0 + e0Err);
-    p << Color("rgb 'blue'") << PlotHLine(e0);
-    p << Color("rgb 'black'") << PlotData(effMassT, effMass[pp]);
-    p << Color("rgb 'red'") << PlotData(effMassT, effMass[pa]);
-    p << Color("rgb 'orange'") << PlotData(effMassT, effMass[ap]);
-    p << Color("rgb 'green'") << PlotData(effMassT, effMass[aa]);
-    
-    //DEBUG_MAT(effMass[pp][central]);
-   
-    p.display();
+    // p.reset();
+    // p << PlotRange(Axis::x, 1, maxT);
+    // p << PlotRange(Axis::y, e0 - 40.*e0Err, e0 + 40.*e0Err);
+    // p << Color("rgb 'blue'") << PlotBand(0, maxT, e0 - e0Err, e0 + e0Err);
+    // p << Color("rgb 'blue'") << PlotHLine(e0);
+    // p << Color("rgb 'black'") << PlotData(effMassT, effMass[pp]);
+    // p << Color("rgb 'red'") << PlotData(effMassT, effMass[pa]);
+    // p << Color("rgb 'orange'") << PlotData(effMassT, effMass[ap]);
+    // p << Color("rgb 'green'") << PlotData(effMassT, effMass[aa]);
+
+    // //DEBUG_MAT(effMass[pp][central]);
+
+    // p.display();
     //p.save("test");
     // }
-    // if (doHeatmap)
-    // {
-    //     Plot  p;
-    //     Index n  = data.getFitVarMat().rows();
-    //     DMat  id = DMat::Identity(n, n);
+//     // if (doHeatmap)
+//     // {
+//     //     Plot  p;
+//     //     Index n  = data.getFitVarMat().rows();
+//     //     DMat  id = DMat::Identity(n, n);
 
-    //     p << PlotMatrix(Math::varToCorr(data.getFitVarMat()));
-    //     p << Caption("correlation matrix");
-    //     p.display();
-    //     if (svdTol > 0.)
-    //     {
-    //         p.reset();
-    //         p << PlotMatrix(id - data.getFitVarMat()*data.getFitVarMatPInv());
-    //         p << Caption("singular space projector");
-    //         p.display();
-    //     }
-  }
+//     //     p << PlotMatrix(Math::varToCorr(data.getFitVarMat()));
+//     //     p << Caption("correlation matrix");
+//     //     p.display();
+//     //     if (svdTol > 0.)
+//     //     {
+//     //         p.reset();
+//     //         p << PlotMatrix(id - data.getFitVarMat()*data.getFitVarMatPInv());
+//     //         p << Caption("singular space projector");
+//     //         p.display();
+//     //     }
+//   }
 
-  // output //////////////////////////////////////////////////////////////////
-  if (!outFileName.empty())
-  {
-    Io::save(fit, outFileName);
-  }
+//   // output //////////////////////////////////////////////////////////////////
+//   if (!outFileName.empty())
+//   {
+//     Io::save(fit, outFileName);
+//   }
 
   return EXIT_SUCCESS;
 }
