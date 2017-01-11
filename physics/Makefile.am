@@ -6,6 +6,7 @@ if CXX_INTEL
 endif
 endif
 
+bin_PROGRAMS = latan-2pt-fit latan-2pt-pseudosc-fit
 
 latan_fit_2pt_SOURCES  = fit-2pt.cpp
 latan_fit_2pt_CXXFLAGS = $(COM_CXXFLAGS)
